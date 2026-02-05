@@ -5,107 +5,176 @@ export default async function handler(
   req: VercelRequest,
   res: VercelResponse
 ) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
 
-  const {
-    clientName,
-    clientPhone,
-    date,
-    time,
-    serviceId,
-    professionalId,
-  } = req.body;
+  if (req.method === 'GET') {
+    const { date } = req.query;
 
-  if (
-    !clientName ||
-    !clientPhone ||
-    !date ||
-    !time ||
-    !serviceId ||
-    !professionalId
-  ) {
-    return res.status(400).json({ error: 'Dados obrigatórios não informados' });
-  }
-
-  const client = await pool.connect();
-
-  try {
-    await client.query('BEGIN');
-
-    // 1️⃣ Buscar duração do serviço
-    const serviceResult = await client.query(
-      `SELECT duration FROM services WHERE id = $1 AND active = true`,
-      [serviceId]
-    );
-
-    if (serviceResult.rowCount === 0) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'Serviço inválido' });
+    if (!date || typeof date !== 'string') {
+      return res.status(400).json({ error: 'Parâmetro date é obrigatório' });
     }
 
-    const serviceDuration = serviceResult.rows[0].duration;
+    try {
+      const result = await pool.query(
+        `
+      SELECT
+        b.id,
+        b.client_name,
+        b.client_phone,
+        b.date,
+        b.time,
+        b.status,
 
-    // 2️⃣ Verificar conflito de horário
-    const conflictResult = await client.query(
-      `
-      SELECT 1
+        s.id AS service_id,
+        s.name AS service_name,
+        s.duration AS service_duration,
+        s.price AS service_price,
+
+        p.id AS professional_id,
+        p.name AS professional_name
+
       FROM bookings b
       JOIN services s ON s.id = b.service_id
-      WHERE
-        b.professional_id = $1
-        AND b.date = $2
-        AND b.status = 'confirmed'
-        AND (
-          (b.time < ($3::time + make_interval(mins => $4)))
-          AND
-          ((b.time + make_interval(mins => s.duration)) > $3::time)
-        )
-      LIMIT 1
-      `,
-      [
-        professionalId,
-        date,
-        time,
-        serviceDuration,
-      ]
-    );
+      JOIN professionals p ON p.id = b.professional_id
 
-    if (conflictResult?.rowCount && conflictResult.rowCount > 0) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({
-        error: 'Horário indisponível para este profissional',
-      });
+      WHERE
+        b.date = $1
+        AND b.status = 'confirmed'
+
+      ORDER BY b.time ASC
+      `,
+        [date]
+      );
+
+      const bookings = result.rows.map(row => ({
+        id: row.id,
+        clientName: row.client_name,
+        clientPhone: row.client_phone,
+        date: row.date,
+        time: row.time,
+        status: row.status,
+        service: {
+          id: row.service_id,
+          name: row.service_name,
+          duration: row.service_duration,
+          price: Number(row.service_price),
+        },
+        professional: {
+          id: row.professional_id,
+          name: row.professional_name,
+        },
+      }));
+
+      return res.status(200).json(bookings);
+    } catch (error) {
+      console.error('Erro ao buscar agenda:', error);
+      return res.status(500).json({ error: 'Erro ao buscar agenda' });
+    }
+  }
+
+  if (req.method === 'POST') {
+
+    const {
+      clientName,
+      clientPhone,
+      date,
+      time,
+      serviceId,
+      professionalId,
+    } = req.body;
+
+    if (
+      !clientName ||
+      !clientPhone ||
+      !date ||
+      !time ||
+      !serviceId ||
+      !professionalId
+    ) {
+      return res.status(400).json({ error: 'Dados obrigatórios não informados' });
     }
 
-    // 3️⃣ Inserir agendamento
-    const insertResult = await client.query(
-      `
-      INSERT INTO bookings
-        (client_name, client_phone, date, time, service_id, professional_id, status)
-      VALUES
-        ($1, $2, $3, $4, $5, $6, 'confirmed')
-      RETURNING id, status
-      `,
-      [
-        clientName,
-        clientPhone,
-        date,
-        time,
-        serviceId,
-        professionalId,
-      ]
-    );
+    const client = await pool.connect();
 
-    await client.query('COMMIT');
+    try {
+      await client.query('BEGIN');
 
-    res.status(201).json(insertResult.rows[0]);
-  } catch (error) {
-    await client.query('ROLLBACK');
-    console.error(error);
-    res.status(500).json({ error: 'Erro ao criar agendamento' });
-  } finally {
-    client.release();
+      // 1️⃣ Buscar duração do serviço
+      const serviceResult = await client.query(
+        `SELECT duration FROM services WHERE id = $1 AND active = true`,
+        [serviceId]
+      );
+
+      if (serviceResult.rowCount === 0) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Serviço inválido' });
+      }
+
+      const serviceDuration = serviceResult.rows[0].duration;
+
+      // 2️⃣ Verificar conflito de horário
+      const conflictResult = await client.query(
+        `
+        SELECT 1
+        FROM bookings b
+        JOIN services s ON s.id = b.service_id
+        WHERE
+          b.professional_id = $1
+          AND b.date = $2
+          AND b.status = 'confirmed'
+          AND (
+            (b.time < ($3::time + make_interval(mins => $4)))
+            AND
+            ((b.time + make_interval(mins => s.duration)) > $3::time)
+          )
+        LIMIT 1
+        `,
+        [
+          professionalId,
+          date,
+          time,
+          serviceDuration,
+        ]
+      );
+
+      if (conflictResult?.rowCount && conflictResult.rowCount > 0) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({
+          error: 'Horário indisponível para este profissional',
+        });
+      }
+
+      // 3️⃣ Inserir agendamento
+      const insertResult = await client.query(
+        `
+        INSERT INTO bookings
+          (client_name, client_phone, date, time, service_id, professional_id, status)
+        VALUES
+          ($1, $2, $3, $4, $5, $6, 'confirmed')
+        RETURNING id, status
+        `,
+        [
+          clientName,
+          clientPhone,
+          date,
+          time,
+          serviceId,
+          professionalId,
+        ]
+      );
+
+      await client.query('COMMIT');
+
+      res.status(201).json(insertResult.rows[0]);
+
+
+    } catch (error) {
+      await client.query('ROLLBACK');
+      console.error(error);
+      res.status(500).json({ error: 'Erro ao criar agendamento' });
+    } finally {
+      client.release();
+    }
   }
+  
+  return res.status(405).json({ error: 'Method not allowed' });
 }
