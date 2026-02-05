@@ -1,0 +1,29 @@
+{
+  "name": "barbertime-api",
+  "version": "1.0.0",
+  "description": "BarberTime's API",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/GustavoTiburcio/BarberTime-api.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/GustavoTiburcio/BarberTime-api/issues"
+  },
+  "homepage": "https://github.com/GustavoTiburcio/BarberTime-api#readme",
+  "dependencies": {
+    "pg": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.0",
+    "@types/pg": "^8.16.0",
+    "@vercel/node": "^5.5.30",
+    "typescript": "^5.9.3"
+  }
+}
