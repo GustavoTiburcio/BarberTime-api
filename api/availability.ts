@@ -63,7 +63,7 @@ export default async function handler(
       WHERE
         b.professional_id = $1
         AND b.date = $2
-        AND b.status = 'confirmed'
+        AND b.status IN ('completed','confirmed', 'pending')
       `,
       [professionalId, date]
     );
