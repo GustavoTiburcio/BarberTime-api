@@ -6,6 +6,7 @@ const OPEN_HOUR = 9;
 const CLOSE_HOUR = 18;
 const SLOT_INTERVAL = 30; // minutos
 
+
 function addMinutes(time: string, minutes: number) {
   const [h, m] = time.split(':').map(Number);
   const date = new Date();
