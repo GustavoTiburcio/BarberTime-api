@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { pool } from '../lib/db';
+import { withCors } from './_utils/cors';
 
 const OPEN_HOUR = 9;
 const CLOSE_HOUR = 18;
@@ -21,6 +22,7 @@ export default async function handler(
   req: VercelRequest,
   res: VercelResponse
 ) {
+  if (withCors(req, res)) return;
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }

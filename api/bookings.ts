@@ -1,10 +1,12 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { pool } from '../lib/db';
+import { withCors } from './_utils/cors';
 
 export default async function handler(
   req: VercelRequest,
   res: VercelResponse
 ) {
+  if (withCors(req, res)) return;
 
   if (req.method === 'GET') {
     const { date } = req.query;
@@ -175,6 +177,6 @@ export default async function handler(
       client.release();
     }
   }
-  
+
   return res.status(405).json({ error: 'Method not allowed' });
 }
