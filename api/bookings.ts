@@ -28,6 +28,7 @@ export default async function handler(
         b.date,
         b.time,
         b.status,
+        b.created_at,
 
         s.id AS service_id,
         s.name AS service_name,
@@ -58,6 +59,7 @@ export default async function handler(
         date: row.date,
         time: row.time,
         status: row.status,
+        createdAt: row.created_at,
         service: {
           id: row.service_id,
           name: row.service_name,
@@ -126,7 +128,7 @@ export default async function handler(
         WHERE
           b.professional_id = $1
           AND b.date = $2
-          AND b.status = 'confirmed'
+          AND (b.status = 'pending' OR b.status = 'confirmed' OR b.status = 'completed')
           AND (
             (b.time < ($3::time + make_interval(mins => $4)))
             AND
@@ -155,7 +157,7 @@ export default async function handler(
         INSERT INTO bookings
           (client_name, client_phone, date, time, service_id, professional_id, status)
         VALUES
-          ($1, $2, $3, $4, $5, $6, 'confirmed')
+          ($1, $2, $3, $4, $5, $6, 'pending')
         RETURNING id, status
         `,
         [
@@ -178,6 +180,27 @@ export default async function handler(
       return res.status(500).json({ error: 'Erro ao criar agendamento' });
     } finally {
       client.release();
+    }
+  }
+
+  if (req.method === 'DELETE') {
+    const { id } = req.query;
+
+    if (!id) {
+      return res.status(400).json({ error: 'ID do agendamento é obrigatório' });
+    }
+    try {
+      const deleteResult = await pool.query(
+        `UPDATE bookings SET status = 'cancelled' WHERE id = $1 RETURNING id`,
+        [id]
+      );
+      if (deleteResult.rowCount === 0) {
+        return res.status(404).json({ error: 'Agendamento não encontrado' });
+      }
+      return res.status(200).json({ message: 'Agendamento cancelado com sucesso' });
+    } catch (error) {
+      console.error('Erro ao cancelar agendamento:', error);
+      return res.status(500).json({ error: 'Erro ao cancelar agendamento' });
     }
   }
 
