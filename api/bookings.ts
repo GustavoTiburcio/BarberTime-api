@@ -9,10 +9,13 @@ export default async function handler(
   if (withCors(req, res)) return;
 
   if (req.method === 'GET') {
-    const { date } = req.query;
+    const { startDate, endDate, professionalId } = req.query;
 
-    if (!date || typeof date !== 'string') {
-      return res.status(400).json({ error: 'Parâmetro date é obrigatório' });
+    if (!startDate || typeof startDate !== 'string') {
+      return res.status(400).json({ error: 'Parâmetro startDate é obrigatório' });
+    }
+    if (!endDate || typeof endDate !== 'string') {
+      return res.status(400).json({ error: 'Parâmetro endDate é obrigatório' });
     }
 
     try {
@@ -39,12 +42,13 @@ export default async function handler(
       JOIN professionals p ON p.id = b.professional_id
 
       WHERE
-        b.date = $1
-        AND b.status = 'confirmed'
+        b.date >= $1
+        AND b.date <= $2
+        ${professionalId ? 'AND b.professional_id = $3' : ''}
 
       ORDER BY b.time ASC
       `,
-        [date]
+        [startDate, endDate, professionalId].filter(Boolean)
       );
 
       const bookings = result.rows.map(row => ({
