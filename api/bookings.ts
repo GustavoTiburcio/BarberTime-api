@@ -166,13 +166,12 @@ export default async function handler(
 
       await client.query('COMMIT');
 
-      res.status(201).json(insertResult.rows[0]);
-
+      return res.status(201).json(insertResult.rows[0]);
 
     } catch (error) {
       await client.query('ROLLBACK');
       console.error(error);
-      res.status(500).json({ error: 'Erro ao criar agendamento' });
+      return res.status(500).json({ error: 'Erro ao criar agendamento' });
     } finally {
       client.release();
     }
