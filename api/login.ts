@@ -20,7 +20,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const result = await pool.query(
       `
-      SELECT id, name, username, password_hash
+      SELECT *
       FROM professionals
       WHERE username = $1
         AND active = true
@@ -57,6 +57,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       professional: {
         id: professional.id,
         name: professional.name,
+        avatar: professional.avatar,
+        specialties: professional.specialties,
+        rating: professional.rating,
         username: professional.username,
       },
     });
