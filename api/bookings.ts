@@ -31,14 +31,18 @@ export default async function handler(
       }
 
       if (status && typeof status === 'string') {
-        const multipleStatuses = status.split(',').map(s => s.trim());
-        if (multipleStatuses.length > 1) {
-          const statusPlaceholders = multipleStatuses.map((_, idx) => `$${values.length + idx + 1}`).join(', ');
+        const multipleStatuses = status
+          .split(',')
+          .map(s => s.trim().toLowerCase())
+          .filter(Boolean);
+
+        if (multipleStatuses.length > 0) {
+          const statusPlaceholders = multipleStatuses
+            .map((_, idx) => `$${values.length + idx + 1}`)
+            .join(', ');
+
           values.push(...multipleStatuses);
           whereClause += ` AND b.status IN (${statusPlaceholders})`;
-        } else {
-          values.push(status);
-          whereClause += ` AND b.status = $${values.length}`;
         }
       }
 
