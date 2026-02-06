@@ -1,4 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import bcrypt from 'bcryptjs';
+
 import { pool } from '../lib/db';
 import { withCors } from './_utils/cors';
 
@@ -38,17 +40,21 @@ export default async function handler(
   if (req.method === 'POST') {
 
     const {
-      name,
       avatar,
-      specialties,
+      name,
+      password,
       rating,
+      specialties,
+      username
     } = req.body;
 
     if (
       !name ||
       !avatar ||
       !specialties ||
-      !rating
+      !rating ||
+      !password ||
+      !username
     ) {
       return res.status(400).json({ error: 'Dados obrigatórios não informados' });
     }
@@ -56,22 +62,26 @@ export default async function handler(
     const client = await pool.connect();
 
     try {
+      const passwordHash = await bcrypt.hash(password, 10);
+
       await client.query('BEGIN');
 
       // 3️⃣ Inserir profissional
       const insertResult = await client.query(
         `
         INSERT INTO professionals
-          (name, avatar, specialties, rating, active)
+          (name, avatar, specialties, rating, password_hash, username, active)
         VALUES
-          ($1, $2, $3, $4, $5)
-        RETURNING id, name, avatar, specialties, rating, active
+          ($1, $2, $3, $4, $5, $6, $7)
+        RETURNING id, name, avatar, specialties, rating, active, username
         `,
         [
           name,
           avatar,
           specialties,
           rating,
+          passwordHash,
+          username,
           true,
         ]
       );
@@ -83,23 +93,25 @@ export default async function handler(
     } catch (error) {
       await client.query('ROLLBACK');
       console.error(error);
-      return res.status(500).json({ error: 'Erro ao criar agendamento' });
+      return res.status(500).json({ error: 'Erro ao criar profissional' });
     } finally {
       client.release();
     }
   }
 
   if (req.method === 'PUT') {
-    const { name, avatar, specialties, rating } = req.body;
+    const { name, avatar, specialties, rating, username, password } = req.body;
     const { id } = req.query;
 
-    if (!id || !name || !avatar || !specialties || !rating) {
+    if (!id || !name || !avatar || !specialties || !rating || !username || !password) {
       return res.status(400).json({ error: 'Dados obrigatórios não informados' });
     }
 
     const client = await pool.connect();
 
     try {
+      const passwordHash = await bcrypt.hash(password, 10);
+
       await client.query('BEGIN');
 
       const updateResult = await client.query(
@@ -109,9 +121,11 @@ export default async function handler(
           name = $2,
           avatar = $3,
           specialties = $4,
-          rating = $5
+          rating = $5,
+          username = $6,
+          password_hash = $7
         WHERE id = $1
-        RETURNING id, name, avatar, specialties, rating
+        RETURNING id, name, avatar, specialties, rating, username
         `,
         [
           id,
@@ -119,6 +133,8 @@ export default async function handler(
           avatar,
           specialties,
           rating,
+          username,
+          passwordHash,
         ]
       );
 
