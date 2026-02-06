@@ -27,7 +27,7 @@ export default async function handler(
 
     const result = await pool.query(
       `
-      SELECT id, name, avatar, specialties, rating, username
+      SELECT id, name, avatar, specialties, rating, username, role
       FROM professionals
       WHERE id = $1
         AND active = true

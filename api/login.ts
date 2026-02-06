@@ -46,7 +46,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const token = jwt.sign(
       {
         sub: professional.id,
-        role: 'professional',
       },
       process.env.JWT_SECRET!,
       { expiresIn: '8h' }
@@ -61,6 +60,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         specialties: professional.specialties,
         rating: professional.rating,
         username: professional.username,
+        role: professional.role,
       },
     });
 
