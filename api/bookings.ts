@@ -9,18 +9,40 @@ export default async function handler(
   if (withCors(req, res)) return;
 
   if (req.method === 'GET') {
-    const { startDate, endDate, professionalId } = req.query;
+    const { startDate, endDate, professionalId, status } = req.query;
 
     if (!startDate || typeof startDate !== 'string') {
       return res.status(400).json({ error: 'Parâmetro startDate é obrigatório' });
     }
+
     if (!endDate || typeof endDate !== 'string') {
       return res.status(400).json({ error: 'Parâmetro endDate é obrigatório' });
     }
 
     try {
-      const result = await pool.query(
-        `
+      const values: any[] = [];
+      let whereClause = 'WHERE b.date >= $1 AND b.date <= $2';
+
+      values.push(startDate, endDate);
+
+      if (professionalId && typeof professionalId === 'string') {
+        values.push(professionalId);
+        whereClause += ` AND b.professional_id = $${values.length}`;
+      }
+
+      if (status && typeof status === 'string') {
+        const multipleStatuses = status.split(',').map(s => s.trim());
+        if (multipleStatuses.length > 1) {
+          const statusPlaceholders = multipleStatuses.map((_, idx) => `$${values.length + idx + 1}`).join(', ');
+          values.push(...multipleStatuses);
+          whereClause += ` AND b.status IN (${statusPlaceholders})`;
+        } else {
+          values.push(status);
+          whereClause += ` AND b.status = $${values.length}`;
+        }
+      }
+
+      const query = `
       SELECT
         b.id,
         b.client_name,
@@ -42,15 +64,12 @@ export default async function handler(
       JOIN services s ON s.id = b.service_id
       JOIN professionals p ON p.id = b.professional_id
 
-      WHERE
-        b.date >= $1
-        AND b.date <= $2
-        ${professionalId ? 'AND b.professional_id = $3' : ''}
+      ${whereClause}
 
-      ORDER BY b.time ASC
-      `,
-        [startDate, endDate, professionalId].filter(Boolean)
-      );
+      ORDER BY b.date ASC, b.time ASC
+    `;
+
+      const result = await pool.query(query, values);
 
       const bookings = result.rows.map(row => ({
         id: row.id,
@@ -180,6 +199,30 @@ export default async function handler(
       return res.status(500).json({ error: 'Erro ao criar agendamento' });
     } finally {
       client.release();
+    }
+  }
+
+  if (req.method === 'PATCH') {
+    const { id, status } = req.body;
+
+    if (!id || !status) {
+      return res.status(400).json({ error: 'ID e status são obrigatórios' });
+    }
+
+    try {
+      const updateResult = await pool.query(
+        `UPDATE bookings SET status = $1 WHERE id = $2 RETURNING id`,
+        [status, id]
+      );
+
+      if (updateResult.rowCount === 0) {
+        return res.status(404).json({ error: 'Agendamento não encontrado' });
+      }
+
+      return res.status(200).json({ message: 'Status atualizado com sucesso' });
+    } catch (error) {
+      console.error('Erro ao atualizar status do agendamento:', error);
+      return res.status(500).json({ error: 'Erro ao atualizar status do agendamento' });
     }
   }
 
