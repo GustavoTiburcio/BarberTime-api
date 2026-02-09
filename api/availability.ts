@@ -100,6 +100,25 @@ export default async function handler(
       }
     }
 
+    // 4️⃣ Filtrar horários que já passaram se for o dia atual
+    const now = new Date();
+    const requestedDate = new Date(date + 'T00:00:00');
+    const isToday =
+      requestedDate.getFullYear() === now.getFullYear() &&
+      requestedDate.getMonth() === now.getMonth() &&
+      requestedDate.getDate() === now.getDate();
+
+    if (isToday) {
+      const currentTimeInMinutes = now.getHours() * 60 + now.getMinutes();
+
+      const futureSlots = availableSlots.filter(slot => {
+        const slotTimeInMinutes = timeToMinutes(slot);
+        return slotTimeInMinutes > currentTimeInMinutes;
+      });
+
+      return res.status(200).json(futureSlots);
+    }
+
     return res.status(200).json(availableSlots);
   } catch (error) {
     console.error('Erro ao calcular disponibilidade:', error);
