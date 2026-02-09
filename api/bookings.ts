@@ -207,7 +207,8 @@ export default async function handler(
   }
 
   if (req.method === 'PATCH') {
-    const { id, status } = req.body;
+    const { id } = req.query;
+    const { status } = req.body;
 
     if (!id || !status) {
       return res.status(400).json({ error: 'ID e status são obrigatórios' });
