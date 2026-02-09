@@ -231,6 +231,181 @@ export default async function handler(
     }
   }
 
+  if (req.method === 'PUT') {
+    const { id } = req.query;
+    const {
+      clientName,
+      clientPhone,
+      date,
+      time,
+      status,
+      serviceId,
+      professionalId,
+    } = req.body;
+
+    if (!id || typeof id !== 'string') {
+      return res.status(400).json({ error: 'ID do agendamento é obrigatório' });
+    }
+
+    if (
+      !clientName ||
+      !clientPhone ||
+      !date ||
+      !time ||
+      !status ||
+      !serviceId ||
+      !professionalId
+    ) {
+      return res.status(400).json({ error: 'Todos os campos são obrigatórios' });
+    }
+
+    const client = await pool.connect();
+
+    try {
+      await client.query('BEGIN');
+
+      // 1️⃣ Buscar duração do serviço
+      const serviceResult = await client.query(
+        `SELECT duration FROM services WHERE id = $1 AND active = true`,
+        [serviceId]
+      );
+
+      if (serviceResult.rowCount === 0) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Serviço inválido' });
+      }
+
+      const serviceDuration = serviceResult.rows[0].duration;
+
+      // 2️⃣ Verificar conflito de horário (excluindo o próprio booking)
+      const conflictResult = await client.query(
+        `
+        SELECT 1
+        FROM bookings b
+        JOIN services s ON s.id = b.service_id
+        WHERE
+          b.id != $1
+          AND b.professional_id = $2
+          AND b.date = $3
+          AND (b.status = 'pending' OR b.status = 'confirmed' OR b.status = 'completed')
+          AND (
+            (b.time < ($4::time + make_interval(mins => $5)))
+            AND
+            ((b.time + make_interval(mins => s.duration)) > $4::time)
+          )
+        LIMIT 1
+        `,
+        [
+          id,
+          professionalId,
+          date,
+          time,
+          serviceDuration,
+        ]
+      );
+
+      if (conflictResult?.rowCount && conflictResult.rowCount > 0) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({
+          error: 'Horário indisponível para este profissional',
+        });
+      }
+
+      // 3️⃣ Atualizar agendamento
+      const updateResult = await client.query(
+        `
+        UPDATE bookings
+        SET
+          client_name = $1,
+          client_phone = $2,
+          date = $3,
+          time = $4,
+          status = $5,
+          service_id = $6,
+          professional_id = $7
+        WHERE id = $8
+        RETURNING id
+        `,
+        [
+          clientName,
+          clientPhone,
+          date,
+          time,
+          status,
+          serviceId,
+          professionalId,
+          id,
+        ]
+      );
+
+      if (updateResult.rowCount === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Agendamento não encontrado' });
+      }
+
+      // 4️⃣ Buscar dados completos do agendamento atualizado
+      const bookingResult = await client.query(
+        `
+        SELECT
+          b.id,
+          b.client_name,
+          b.client_phone,
+          b.date,
+          b.time,
+          b.status,
+          b.created_at,
+
+          s.id AS service_id,
+          s.name AS service_name,
+          s.duration AS service_duration,
+          s.price AS service_price,
+
+          p.id AS professional_id,
+          p.name AS professional_name
+
+        FROM bookings b
+        JOIN services s ON s.id = b.service_id
+        JOIN professionals p ON p.id = b.professional_id
+
+        WHERE b.id = $1
+        `,
+        [id]
+      );
+
+      await client.query('COMMIT');
+
+      const row = bookingResult.rows[0];
+      const updatedBooking = {
+        id: row.id,
+        clientName: row.client_name,
+        clientPhone: row.client_phone,
+        date: row.date,
+        time: row.time,
+        status: row.status,
+        createdAt: row.created_at,
+        service: {
+          id: row.service_id,
+          name: row.service_name,
+          duration: row.service_duration,
+          price: Number(row.service_price),
+        },
+        professional: {
+          id: row.professional_id,
+          name: row.professional_name,
+        },
+      };
+
+      return res.status(200).json(updatedBooking);
+
+    } catch (error) {
+      await client.query('ROLLBACK');
+      console.error('Erro ao atualizar agendamento:', error);
+      return res.status(500).json({ error: 'Erro ao atualizar agendamento' });
+    } finally {
+      client.release();
+    }
+  }
+
   if (req.method === 'DELETE') {
     const { id } = req.query;
 
