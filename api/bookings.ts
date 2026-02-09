@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { pool } from '../lib/db';
 import { withCors } from './_utils/cors';
+import { sendBookingConfirmation } from './_utils/whatsapp';
 
 export default async function handler(
   req: VercelRequest,
@@ -151,9 +152,9 @@ export default async function handler(
       verifyAndUpdateBookingStatus();
       await client.query('BEGIN');
 
-      // 1️⃣ Buscar duração e preço do serviço
+      // 1️⃣ Buscar duração, preço e nome do serviço
       const serviceResult = await client.query(
-        `SELECT duration, price FROM services WHERE id = $1 AND active = true`,
+        `SELECT duration, price, name FROM services WHERE id = $1 AND active = true`,
         [serviceId]
       );
 
@@ -164,6 +165,20 @@ export default async function handler(
 
       const serviceDuration = serviceResult.rows[0].duration;
       const servicePrice = serviceResult.rows[0].price;
+      const serviceName = serviceResult.rows[0].name;
+
+      // 1.5️⃣ Buscar nome do profissional
+      const professionalResult = await client.query(
+        `SELECT name FROM professionals WHERE id = $1`,
+        [professionalId]
+      );
+
+      if (professionalResult.rowCount === 0) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Profissional inválido' });
+      }
+
+      const professionalName = professionalResult.rows[0].name;
 
       // 2️⃣ Verificar conflito de horário
       const conflictResult = await client.query(
@@ -218,6 +233,18 @@ export default async function handler(
       );
 
       await client.query('COMMIT');
+
+      // 4️⃣ Enviar notificação via WhatsApp (não bloqueia em caso de erro)
+      sendBookingConfirmation({
+        clientName,
+        clientPhone,
+        date,
+        time,
+        serviceName,
+        professionalName,
+      }).catch(err => {
+        console.error('Erro ao enviar WhatsApp (não bloqueante):', err);
+      });
 
       return res.status(201).json(insertResult.rows[0]);
 
