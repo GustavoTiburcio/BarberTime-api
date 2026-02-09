@@ -8,6 +8,23 @@ export default async function handler(
 ) {
   if (withCors(req, res)) return;
 
+  async function verifyAndUpdateBookingStatus() {
+    try {
+      const query = `
+        UPDATE bookings
+        SET status = 'completed'
+        WHERE status != 'completed' 
+        AND status != 'cancelled'
+        AND (date + time) < now()
+      `;
+
+      await pool.query(query);
+
+    } catch (error) {
+      console.error('Erro ao verifcar e atualizar status bookings:', error);
+    }
+  }
+
   if (req.method === 'GET') {
     const { startDate, endDate, professionalId, status } = req.query;
 
@@ -20,6 +37,8 @@ export default async function handler(
     }
 
     try {
+      verifyAndUpdateBookingStatus();
+
       const values: any[] = [];
       let whereClause = 'WHERE b.date >= $1 AND b.date <= $2';
 
@@ -129,6 +148,7 @@ export default async function handler(
     const client = await pool.connect();
 
     try {
+      verifyAndUpdateBookingStatus();
       await client.query('BEGIN');
 
       // 1️⃣ Buscar duração e preço do serviço
@@ -219,6 +239,7 @@ export default async function handler(
     }
 
     try {
+      verifyAndUpdateBookingStatus();
       const updateResult = await pool.query(
         `UPDATE bookings SET status = $1 WHERE id = $2 RETURNING id`,
         [status, id]
@@ -267,6 +288,7 @@ export default async function handler(
     const client = await pool.connect();
 
     try {
+      verifyAndUpdateBookingStatus();
       await client.query('BEGIN');
 
       // 1️⃣ Buscar duração e preço do serviço
@@ -424,6 +446,7 @@ export default async function handler(
       return res.status(400).json({ error: 'ID do agendamento é obrigatório' });
     }
     try {
+      verifyAndUpdateBookingStatus();
       const deleteResult = await pool.query(
         `UPDATE bookings SET status = 'cancelled' WHERE id = $1 RETURNING id`,
         [id]
