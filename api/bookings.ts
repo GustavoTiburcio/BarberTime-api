@@ -55,11 +55,12 @@ export default async function handler(
         b.time,
         b.status,
         b.created_at,
+        b.service_price,
 
         s.id AS service_id,
         s.name AS service_name,
         s.duration AS service_duration,
-        s.price AS service_price,
+        s.price AS current_service_price,
 
         p.id AS professional_id,
         p.name AS professional_name
@@ -83,11 +84,12 @@ export default async function handler(
         time: row.time,
         status: row.status,
         createdAt: row.created_at,
+        servicePrice: Number(row.service_price),
         service: {
           id: row.service_id,
           name: row.service_name,
           duration: row.service_duration,
-          price: Number(row.service_price),
+          price: Number(row.current_service_price),
         },
         professional: {
           id: row.professional_id,
@@ -129,9 +131,9 @@ export default async function handler(
     try {
       await client.query('BEGIN');
 
-      // 1️⃣ Buscar duração do serviço
+      // 1️⃣ Buscar duração e preço do serviço
       const serviceResult = await client.query(
-        `SELECT duration FROM services WHERE id = $1 AND active = true`,
+        `SELECT duration, price FROM services WHERE id = $1 AND active = true`,
         [serviceId]
       );
 
@@ -141,6 +143,7 @@ export default async function handler(
       }
 
       const serviceDuration = serviceResult.rows[0].duration;
+      const servicePrice = serviceResult.rows[0].price;
 
       // 2️⃣ Verificar conflito de horário
       const conflictResult = await client.query(
@@ -174,13 +177,13 @@ export default async function handler(
         });
       }
 
-      // 3️⃣ Inserir agendamento
+      // 3️⃣ Inserir agendamento com preço do serviço
       const insertResult = await client.query(
         `
         INSERT INTO bookings
-          (client_name, client_phone, date, time, service_id, professional_id, status)
+          (client_name, client_phone, date, time, service_id, professional_id, status, service_price)
         VALUES
-          ($1, $2, $3, $4, $5, $6, 'pending')
+          ($1, $2, $3, $4, $5, $6, 'pending', $7)
         RETURNING id, status
         `,
         [
@@ -190,6 +193,7 @@ export default async function handler(
           time,
           serviceId,
           professionalId,
+          servicePrice,
         ]
       );
 
@@ -241,6 +245,7 @@ export default async function handler(
       status,
       serviceId,
       professionalId,
+      servicePrice,
     } = req.body;
 
     if (!id || typeof id !== 'string') {
@@ -264,9 +269,9 @@ export default async function handler(
     try {
       await client.query('BEGIN');
 
-      // 1️⃣ Buscar duração do serviço
+      // 1️⃣ Buscar duração e preço do serviço
       const serviceResult = await client.query(
-        `SELECT duration FROM services WHERE id = $1 AND active = true`,
+        `SELECT duration, price FROM services WHERE id = $1 AND active = true`,
         [serviceId]
       );
 
@@ -276,6 +281,8 @@ export default async function handler(
       }
 
       const serviceDuration = serviceResult.rows[0].duration;
+      // Use o preço fornecido ou o preço atual do serviço
+      const finalServicePrice = servicePrice !== undefined ? servicePrice : serviceResult.rows[0].price;
 
       // 2️⃣ Verificar conflito de horário (excluindo o próprio booking)
       const conflictResult = await client.query(
@@ -322,8 +329,9 @@ export default async function handler(
           time = $4,
           status = $5,
           service_id = $6,
-          professional_id = $7
-        WHERE id = $8
+          professional_id = $7,
+          service_price = $8
+        WHERE id = $9
         RETURNING id
         `,
         [
@@ -334,6 +342,7 @@ export default async function handler(
           status,
           serviceId,
           professionalId,
+          finalServicePrice,
           id,
         ]
       );
@@ -354,11 +363,12 @@ export default async function handler(
           b.time,
           b.status,
           b.created_at,
+          b.service_price,
 
           s.id AS service_id,
           s.name AS service_name,
           s.duration AS service_duration,
-          s.price AS service_price,
+          s.price AS current_service_price,
 
           p.id AS professional_id,
           p.name AS professional_name
@@ -383,11 +393,12 @@ export default async function handler(
         time: row.time,
         status: row.status,
         createdAt: row.created_at,
+        servicePrice: Number(row.service_price),
         service: {
           id: row.service_id,
           name: row.service_name,
           duration: row.service_duration,
-          price: Number(row.service_price),
+          price: Number(row.current_service_price),
         },
         professional: {
           id: row.professional_id,
