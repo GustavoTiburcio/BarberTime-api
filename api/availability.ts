@@ -2,16 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { pool } from '../lib/db';
 import { withCors } from './_utils/cors';
 
-const OPEN_HOUR = 9;
-const CLOSE_HOUR = 20;
 const SLOT_INTERVAL = 60; // minutos
-
-function addMinutes(time: string, minutes: number) {
-  const [h, m] = time.split(':').map(Number);
-  const date = new Date();
-  date.setHours(h, m + minutes, 0, 0);
-  return date.toTimeString().slice(0, 5);
-}
 
 function timeToMinutes(time: string) {
   const [h, m] = time.split(':').map(Number);
@@ -52,6 +43,29 @@ export default async function handler(
 
     const serviceDuration = serviceResult.rows[0].duration;
 
+    // 1.5️⃣ Buscar horários de trabalho do profissional para o dia da semana
+    const requestedDate = new Date(date + 'T00:00:00');
+    const dayOfWeek = requestedDate.getDay(); // 0=Sunday, 1=Monday, ..., 6=Saturday
+
+    const workHoursResult = await pool.query(
+      `
+      SELECT start_time, end_time
+      FROM professional_work_hours
+      WHERE professional_id = $1 AND day_of_week = $2
+      ORDER BY start_time ASC
+      `,
+      [professionalId, dayOfWeek]
+    );
+
+    // Se não houver horários cadastrados, retornar array vazio (dia de folga)
+    const workPeriods =
+      workHoursResult.rowCount && workHoursResult.rowCount > 0
+        ? workHoursResult.rows.map(row => ({
+            start: timeToMinutes(row.start_time),
+            end: timeToMinutes(row.end_time),
+          }))
+        : [];
+
     // 2️⃣ Buscar agendamentos do profissional no dia
     const bookingsResult = await pool.query(
       `
@@ -73,31 +87,60 @@ export default async function handler(
       end: timeToMinutes(b.time) + b.duration,
     }));
 
-    // 3️⃣ Gerar slots do dia
+    // 3️⃣ Gerar slots para cada período de trabalho
     const availableSlots: string[] = [];
 
-    const startDay = OPEN_HOUR * 60;
-    const endDay = CLOSE_HOUR * 60;
+    for (const period of workPeriods) {
+      for (
+        let slotStart = period.start;
+        slotStart + serviceDuration <= period.end;
+        slotStart += SLOT_INTERVAL
+      ) {
+        const slotEnd = slotStart + serviceDuration;
 
-    for (
-      let slotStart = startDay;
-      slotStart + serviceDuration <= endDay;
-      slotStart += SLOT_INTERVAL
-    ) {
-      const slotEnd = slotStart + serviceDuration;
+        // Verificar se o slot está dentro do período de trabalho
+        if (slotEnd > period.end) {
+          break;
+        }
 
-      const hasConflict = bookings.some(
-        booking =>
-          slotStart < booking.end && slotEnd > booking.start
-      );
-
-      if (!hasConflict) {
-        const hours = Math.floor(slotStart / 60);
-        const minutes = slotStart % 60;
-        availableSlots.push(
-          `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
+        // Verificar conflito com agendamentos existentes
+        const hasConflict = bookings.some(
+          booking =>
+            slotStart < booking.end && slotEnd > booking.start
         );
+
+        if (!hasConflict) {
+          const hours = Math.floor(slotStart / 60);
+          const minutes = slotStart % 60;
+          const timeSlot = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+
+          // Evitar duplicatas (pode acontecer se períodos se sobrepõem)
+          if (!availableSlots.includes(timeSlot)) {
+            availableSlots.push(timeSlot);
+          }
+        }
       }
+    }
+
+    // Ordenar slots
+    availableSlots.sort();
+
+    // 4️⃣ Filtrar horários que já passaram se for o dia atual
+    const now = new Date();
+    const isToday =
+      requestedDate.getFullYear() === now.getFullYear() &&
+      requestedDate.getMonth() === now.getMonth() &&
+      requestedDate.getDate() === now.getDate();
+
+    if (isToday) {
+      const currentTimeInMinutes = now.getHours() * 60 + now.getMinutes();
+
+      const futureSlots = availableSlots.filter(slot => {
+        const slotTimeInMinutes = timeToMinutes(slot);
+        return slotTimeInMinutes > currentTimeInMinutes;
+      });
+
+      return res.status(200).json(futureSlots);
     }
 
     return res.status(200).json(availableSlots);
